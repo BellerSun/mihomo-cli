@@ -1298,9 +1298,9 @@ show_menu() {
         local ver mode
         ver=$(api_get "/version" | jq -r '.version // "?"' 2>/dev/null)
         mode=$(api_get "/configs" | jq -r '.mode // "?"' 2>/dev/null)
-        echo -ne "  ${GREEN}●${NC} 服务运行中  ${DIM}版本: ${ver}  模式: ${mode}${NC}"
+        echo -ne "  ${GREEN}●${NC} 运行中  版本: ${WHITE}${ver}${NC}  模式: ${CYAN}${BOLD}${mode}${NC}"
     else
-        echo -ne "  ${RED}●${NC} 服务未运行"
+        echo -ne "  ${RED}●${NC} ${RED}服务未运行${NC}"
     fi
 
     if [[ -n "${http_proxy:-}" ]] || [[ -n "${all_proxy:-}" ]]; then
