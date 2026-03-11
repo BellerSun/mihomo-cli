@@ -1273,9 +1273,9 @@ show_menu() {
     fi
 
     if _is_service_enabled 2>/dev/null; then
-        echo -e "    ${DIM}自启: ON${NC}"
+        echo -e "    ${GREEN}◆${NC} ${DIM}自启: ON${NC}"
     else
-        echo -e "    ${DIM}自启: OFF${NC}"
+        echo -e "    ${DIM}◇ 自启: OFF${NC}"
     fi
     echo ""
 
