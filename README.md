@@ -71,7 +71,30 @@ mihomo-cli rules           # 查看路由规则
 mihomo-cli info            # 查看运行信息
 mihomo-cli test            # 连通性测试 (Google/GitHub/Baidu)
 mihomo-cli dns example.com # DNS 查询
+
+# 环境代理 (http/https/socks5/git SSH 一键切换)
+eval $(mihomo-cli proxy-on)      # 开启当前终端代理
+eval $(mihomo-cli proxy-off)     # 关闭当前终端代理
+mihomo-cli proxy-status          # 查看代理环境状态
 ```
+
+## 推荐 bashrc 配置
+
+将以下内容添加到 `~/.bashrc`，替换原来的 alias：
+
+```bash
+# mihomo 代理环境 (新终端自动加载上次的代理状态)
+[ -f ~/.mihomo_proxy_env ] && source ~/.mihomo_proxy_env
+alias proxy-on='eval $(mihomo-cli proxy-on)'
+alias proxy-off='eval $(mihomo-cli proxy-off)'
+alias proxy-status='mihomo-cli proxy-status'
+```
+
+开启后覆盖范围：
+- `http_proxy` / `https_proxy` — curl, wget, pip, npm, apt 等
+- `all_proxy` (SOCKS5) — 更多工具支持
+- `GIT_SSH_COMMAND` — git SSH 协议 (git@github.com:...) 走代理
+- `no_proxy` — 内网地址自动直连
 
 ## 环境变量
 

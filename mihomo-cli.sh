@@ -998,6 +998,124 @@ cmd_test() {
     done
 }
 
+# ======================== 环境代理管理 ========================
+PROXY_ENV_FILE="$HOME/.mihomo_proxy_env"
+
+_proxy_env_lines() {
+    local port="${PROXY_PORT:-7890}"
+    cat <<EOF
+export http_proxy=http://127.0.0.1:${port}
+export https_proxy=http://127.0.0.1:${port}
+export HTTP_PROXY=http://127.0.0.1:${port}
+export HTTPS_PROXY=http://127.0.0.1:${port}
+export all_proxy=socks5://127.0.0.1:${port}
+export ALL_PROXY=socks5://127.0.0.1:${port}
+export no_proxy=localhost,127.0.0.1,::1,10.0.0.0/8,172.16.0.0/12,192.168.0.0/16
+export NO_PROXY=localhost,127.0.0.1,::1,10.0.0.0/8,172.16.0.0/12,192.168.0.0/16
+EOF
+    if command -v nc &>/dev/null || command -v ncat &>/dev/null; then
+        local nc_cmd="nc"
+        command -v ncat &>/dev/null && nc_cmd="ncat"
+        echo "export GIT_SSH_COMMAND=\"ssh -o ProxyCommand='${nc_cmd} -X 5 -x 127.0.0.1:${port} %h %p'\""
+    fi
+}
+
+_proxy_unset_lines() {
+    cat <<'EOF'
+unset http_proxy
+unset https_proxy
+unset HTTP_PROXY
+unset HTTPS_PROXY
+unset all_proxy
+unset ALL_PROXY
+unset no_proxy
+unset NO_PROXY
+unset GIT_SSH_COMMAND
+EOF
+}
+
+cmd_proxy_on() {
+    local is_tui="${1:-false}"
+    local lines
+    lines=$(_proxy_env_lines)
+
+    if [[ "$is_tui" == "true" ]]; then
+        title "开启环境代理"
+        echo "$lines" > "$PROXY_ENV_FILE"
+        eval "$lines"
+        info "代理环境变量已设置"
+        echo ""
+        echo -e "  ${BOLD}已写入:${NC} ${DIM}${PROXY_ENV_FILE}${NC}"
+        echo -e "  ${BOLD}已设置:${NC}"
+        echo -e "    http(s)_proxy  = ${CYAN}http://127.0.0.1:${PROXY_PORT}${NC}"
+        echo -e "    all_proxy      = ${CYAN}socks5://127.0.0.1:${PROXY_PORT}${NC}"
+        if echo "$lines" | grep -q GIT_SSH_COMMAND; then
+            echo -e "    GIT_SSH_COMMAND = ${CYAN}已配置 (SOCKS5 代理)${NC}"
+        fi
+        echo ""
+        echo -e "  ${YELLOW}当前终端已生效。其他已打开的终端执行:${NC}"
+        echo -e "  ${WHITE}source ${PROXY_ENV_FILE}${NC}"
+    else
+        echo "$lines"
+    fi
+}
+
+cmd_proxy_off() {
+    local is_tui="${1:-false}"
+    local lines
+    lines=$(_proxy_unset_lines)
+
+    if [[ "$is_tui" == "true" ]]; then
+        title "关闭环境代理"
+        rm -f "$PROXY_ENV_FILE"
+        eval "$lines"
+        info "代理环境变量已清除"
+        echo ""
+        echo -e "  ${BOLD}已删除:${NC} ${DIM}${PROXY_ENV_FILE}${NC}"
+        echo ""
+        echo -e "  ${YELLOW}当前终端已生效。其他已打开的终端执行:${NC}"
+        echo -e "  ${WHITE}eval \$(mihomo-cli proxy-off)${NC}"
+    else
+        echo "$lines"
+    fi
+}
+
+cmd_proxy_status() {
+    title "环境代理状态"
+
+    local active=false
+    if [[ -n "${http_proxy:-}" ]] || [[ -n "${HTTP_PROXY:-}" ]] || [[ -n "${all_proxy:-}" ]]; then
+        active=true
+    fi
+
+    if $active; then
+        echo -e "  状态: ${GREEN}${BOLD}已开启${NC}\n"
+    else
+        echo -e "  状态: ${DIM}未开启${NC}\n"
+    fi
+
+    printf "  ${BOLD}%-20s${NC} %s\n" "http_proxy"  "${http_proxy:-${DIM}(未设置)${NC}}"
+    printf "  ${BOLD}%-20s${NC} %s\n" "https_proxy" "${https_proxy:-${DIM}(未设置)${NC}}"
+    printf "  ${BOLD}%-20s${NC} %s\n" "all_proxy"   "${all_proxy:-${DIM}(未设置)${NC}}"
+    printf "  ${BOLD}%-20s${NC} %s\n" "no_proxy"    "${no_proxy:-${DIM}(未设置)${NC}}"
+    printf "  ${BOLD}%-20s${NC} %s\n" "GIT_SSH"     "${GIT_SSH_COMMAND:-${DIM}(未设置)${NC}}"
+
+    echo ""
+    if [[ -f "$PROXY_ENV_FILE" ]]; then
+        echo -e "  ${DIM}持久化文件: ${PROXY_ENV_FILE} (存在)${NC}"
+    else
+        echo -e "  ${DIM}持久化文件: ${PROXY_ENV_FILE} (不存在)${NC}"
+    fi
+
+    echo ""
+    echo -e "  ${BOLD}推荐添加到 ~/.bashrc:${NC}"
+    echo -e "  ${DIM}# mihomo 代理环境 (新终端自动加载)${NC}"
+    echo -e "  ${WHITE}[ -f ~/.mihomo_proxy_env ] && source ~/.mihomo_proxy_env${NC}"
+    echo -e "  ${WHITE}alias proxy-on='eval \$(mihomo-cli proxy-on)'${NC}"
+    echo -e "  ${WHITE}alias proxy-off='eval \$(mihomo-cli proxy-off)'${NC}"
+    echo -e "  ${WHITE}alias proxy-status='mihomo-cli proxy-status'${NC}"
+}
+
 # ======================== DNS 查询 ========================
 cmd_dns() {
     title "DNS 查询"
@@ -1043,10 +1161,17 @@ show_menu() {
         local ver mode
         ver=$(api_get "/version" | jq -r '.version // "?"' 2>/dev/null)
         mode=$(api_get "/configs" | jq -r '.mode // "?"' 2>/dev/null)
-        echo -e "  ${GREEN}●${NC} 服务运行中  ${DIM}版本: ${ver}  模式: ${mode}${NC}\n"
+        echo -ne "  ${GREEN}●${NC} 服务运行中  ${DIM}版本: ${ver}  模式: ${mode}${NC}"
     else
-        echo -e "  ${RED}●${NC} 服务未运行\n"
+        echo -ne "  ${RED}●${NC} 服务未运行"
     fi
+
+    if [[ -n "${http_proxy:-}" ]] || [[ -n "${all_proxy:-}" ]]; then
+        echo -e "    ${GREEN}◆${NC} ${DIM}代理环境: ON${NC}"
+    else
+        echo -e "    ${DIM}◇ 代理环境: OFF${NC}"
+    fi
+    echo ""
 
     echo -e "  ${BOLD}[服务管理]${NC}"
     echo -e "    ${WHITE} 1${NC}  查看服务状态        ${WHITE} 2${NC}  启动服务"
@@ -1062,12 +1187,16 @@ show_menu() {
     echo -e "    ${WHITE}12${NC}  添加订阅            ${WHITE}13${NC}  删除订阅"
     echo -e "    ${WHITE}14${NC}  修改订阅 URL"
     echo ""
+    echo -e "  ${BOLD}[环境代理]${NC}"
+    echo -e "    ${WHITE}15${NC}  代理环境状态        ${WHITE}16${NC}  开启环境代理"
+    echo -e "    ${WHITE}17${NC}  关闭环境代理"
+    echo ""
     echo -e "  ${BOLD}[配置与其他]${NC}"
-    echo -e "    ${WHITE}15${NC}  查看/切换模式       ${WHITE}16${NC}  查看当前连接"
-    echo -e "    ${WHITE}17${NC}  查看路由规则        ${WHITE}18${NC}  编辑配置文件"
-    echo -e "    ${WHITE}19${NC}  重载配置            ${WHITE}20${NC}  查看运行信息"
-    echo -e "    ${WHITE}21${NC}  连通性测试          ${WHITE}22${NC}  DNS 查询"
-    echo -e "    ${WHITE}23${NC}  查看配置文件"
+    echo -e "    ${WHITE}18${NC}  查看/切换模式       ${WHITE}19${NC}  查看当前连接"
+    echo -e "    ${WHITE}20${NC}  查看路由规则        ${WHITE}21${NC}  编辑配置文件"
+    echo -e "    ${WHITE}22${NC}  重载配置            ${WHITE}23${NC}  查看运行信息"
+    echo -e "    ${WHITE}24${NC}  连通性测试          ${WHITE}25${NC}  DNS 查询"
+    echo -e "    ${WHITE}26${NC}  查看配置文件"
     echo ""
     echo -e "    ${WHITE} 0${NC}  退出"
     echo ""
@@ -1076,7 +1205,7 @@ show_menu() {
 interactive_mode() {
     while true; do
         show_menu
-        echo -ne "  ${BOLD}请选择 [0-23]: ${NC}"
+        echo -ne "  ${BOLD}请选择 [0-26]: ${NC}"
         read -r choice
         echo ""
 
@@ -1095,15 +1224,18 @@ interactive_mode() {
             12) cmd_add_sub ;;
             13) cmd_del_sub ;;
             14) cmd_edit_sub_url ;;
-            15) cmd_mode ;;
-            16) cmd_connections ;;
-            17) cmd_rules ;;
-            18) cmd_edit ;;
-            19) cmd_reload ;;
-            20) cmd_info ;;
-            21) cmd_test ;;
-            22) cmd_dns ;;
-            23) cmd_config_view ;;
+            15) cmd_proxy_status ;;
+            16) cmd_proxy_on true ;;
+            17) cmd_proxy_off true ;;
+            18) cmd_mode ;;
+            19) cmd_connections ;;
+            20) cmd_rules ;;
+            21) cmd_edit ;;
+            22) cmd_reload ;;
+            23) cmd_info ;;
+            24) cmd_test ;;
+            25) cmd_dns ;;
+            26) cmd_config_view ;;
             0)  echo -e "  ${GREEN}再见!${NC}"; exit 0 ;;
             *)  warn "无效选择: $choice" ;;
         esac
@@ -1140,6 +1272,11 @@ show_help() {
     echo "  del-sub               删除订阅"
     echo "  edit-sub-url          修改订阅 URL"
     echo ""
+    echo -e "${BOLD}环境代理:${NC}"
+    echo "  proxy-on              开启代理环境 (配合 eval 使用)"
+    echo "  proxy-off             关闭代理环境 (配合 eval 使用)"
+    echo "  proxy-status          查看代理环境状态"
+    echo ""
     echo -e "${BOLD}配置与其他:${NC}"
     echo "  mode [rule|global|direct]  查看/切换模式"
     echo "  connections           查看当前连接"
@@ -1150,6 +1287,10 @@ show_help() {
     echo "  info                  查看运行信息"
     echo "  test                  连通性测试"
     echo "  dns [域名]            DNS 查询"
+    echo ""
+    echo -e "${BOLD}用法示例:${NC}"
+    echo "  eval \$(mihomo-cli proxy-on)    # 开启当前终端代理"
+    echo "  eval \$(mihomo-cli proxy-off)   # 关闭当前终端代理"
     echo ""
     echo -e "${DIM}不带参数运行进入交互模式${NC}"
     echo ""
@@ -1180,6 +1321,9 @@ main() {
         add-sub)        cmd_add_sub ;;
         del-sub)        cmd_del_sub ;;
         edit-sub-url)   cmd_edit_sub_url ;;
+        proxy-on)       cmd_proxy_on false ;;
+        proxy-off)      cmd_proxy_off false ;;
+        proxy-status)   cmd_proxy_status ;;
         mode)           cmd_mode "${2:-}" ;;
         connections)    cmd_connections ;;
         rules)          cmd_rules ;;
