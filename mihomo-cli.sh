@@ -93,6 +93,14 @@ parse_api_config() {
 
     [[ -z "$API_ADDR" ]] && API_ADDR="127.0.0.1:9090"
     [[ -z "$PROXY_PORT" ]] && PROXY_PORT="7890"
+
+    # 0.0.0.0 / [::] / :: 是绑定地址，客户端连不上，替换为 127.0.0.1
+    API_ADDR="${API_ADDR/0.0.0.0/127.0.0.1}"
+    API_ADDR="${API_ADDR/\[::]/127.0.0.1}"
+    API_ADDR="${API_ADDR/::1/127.0.0.1}"
+    # 只有端口没有地址的情况，如 :9090
+    [[ "$API_ADDR" =~ ^:[0-9]+$ ]] && API_ADDR="127.0.0.1${API_ADDR}"
+
     [[ "$API_ADDR" != http* ]] && API_ADDR="http://$API_ADDR"
 }
 
