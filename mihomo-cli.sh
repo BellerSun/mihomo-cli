@@ -1098,6 +1098,43 @@ cmd_test() {
     done
 }
 
+# ======================== IP 信息查询 ========================
+cmd_ip() {
+    title "IP 信息查询"
+
+    local proxy_addr="http://127.0.0.1:${PROXY_PORT}"
+    local api_url="http://ip-api.com/json/?lang=zh-CN"
+
+    echo -ne "  ${BOLD}代理出口${NC} ... "
+    local proxy_result
+    proxy_result=$(curl -s --proxy "$proxy_addr" "$api_url" --connect-timeout 5 --max-time 10 2>/dev/null)
+
+    if [[ -n "$proxy_result" ]] && echo "$proxy_result" | jq -e '.status == "success"' &>/dev/null; then
+        echo -e "${GREEN}查询成功${NC}"
+        echo -e "    IP:    ${WHITE}$(echo "$proxy_result" | jq -r '.query')${NC}"
+        echo -e "    位置:  ${CYAN}$(echo "$proxy_result" | jq -r '"\(.country) \(.city)"')${NC}"
+        echo -e "    ISP:   ${DIM}$(echo "$proxy_result" | jq -r '.isp')${NC}"
+        echo -e "    AS:    ${DIM}$(echo "$proxy_result" | jq -r '.as')${NC}"
+    else
+        echo -e "${RED}查询失败${NC}"
+    fi
+
+    echo ""
+    echo -ne "  ${BOLD}直连出口${NC} ... "
+    local direct_result
+    direct_result=$(curl -s --noproxy '*' "$api_url" --connect-timeout 5 --max-time 10 2>/dev/null)
+
+    if [[ -n "$direct_result" ]] && echo "$direct_result" | jq -e '.status == "success"' &>/dev/null; then
+        echo -e "${GREEN}查询成功${NC}"
+        echo -e "    IP:    ${WHITE}$(echo "$direct_result" | jq -r '.query')${NC}"
+        echo -e "    位置:  ${CYAN}$(echo "$direct_result" | jq -r '"\(.country) \(.city)"')${NC}"
+        echo -e "    ISP:   ${DIM}$(echo "$direct_result" | jq -r '.isp')${NC}"
+        echo -e "    AS:    ${DIM}$(echo "$direct_result" | jq -r '.as')${NC}"
+    else
+        echo -e "${RED}查询失败${NC}"
+    fi
+}
+
 # ======================== 环境代理管理 ========================
 PROXY_ENV_FILE="$HOME/.mihomo_proxy_env"
 
@@ -1301,8 +1338,8 @@ show_menu() {
     echo -e "    ${WHITE}19${NC}  查看/切换模式       ${WHITE}20${NC}  查看当前连接"
     echo -e "    ${WHITE}21${NC}  查看路由规则        ${WHITE}22${NC}  编辑配置文件"
     echo -e "    ${WHITE}23${NC}  重载配置            ${WHITE}24${NC}  查看运行信息"
-    echo -e "    ${WHITE}25${NC}  连通性测试          ${WHITE}26${NC}  DNS 查询"
-    echo -e "    ${WHITE}27${NC}  查看配置文件"
+    echo -e "    ${WHITE}25${NC}  连通性测试          ${WHITE}26${NC}  IP 信息查询"
+    echo -e "    ${WHITE}27${NC}  DNS 查询            ${WHITE}28${NC}  查看配置文件"
     echo ""
     echo -e "    ${WHITE} 0${NC}  退出"
     echo ""
@@ -1311,7 +1348,7 @@ show_menu() {
 interactive_mode() {
     while true; do
         show_menu
-        echo -ne "  ${BOLD}请选择 [0-27]: ${NC}"
+        echo -ne "  ${BOLD}请选择 [0-28]: ${NC}"
         read -r choice
         echo ""
 
@@ -1341,8 +1378,9 @@ interactive_mode() {
             23) cmd_reload ;;
             24) cmd_info ;;
             25) cmd_test ;;
-            26) cmd_dns ;;
-            27) cmd_config_view ;;
+            26) cmd_ip ;;
+            27) cmd_dns ;;
+            28) cmd_config_view ;;
             0)  echo -e "  ${GREEN}再见!${NC}"; exit 0 ;;
             *)  warn "无效选择: $choice" ;;
         esac
@@ -1394,6 +1432,7 @@ show_help() {
     echo "  reload                重载配置"
     echo "  info                  查看运行信息"
     echo "  test                  连通性测试"
+    echo "  ip                    IP 信息查询 (代理+直连)"
     echo "  dns [域名]            DNS 查询"
     echo ""
     echo -e "${BOLD}用法示例:${NC}"
@@ -1441,6 +1480,7 @@ main() {
         reload)         cmd_reload ;;
         info)           cmd_info ;;
         test)           cmd_test ;;
+        ip)             cmd_ip ;;
         dns)            cmd_dns "${2:-}" ;;
         help|-h|--help) show_help ;;
         "")             interactive_mode ;;
