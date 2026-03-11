@@ -155,24 +155,116 @@ require_api() {
 }
 
 # ======================== 服务管理 ========================
+_is_service_enabled() {
+    systemctl is-enabled "$SERVICE_NAME" &>/dev/null
+}
+
+_is_service_active() {
+    systemctl is-active "$SERVICE_NAME" &>/dev/null
+}
+
+_auto_proxy_on() {
+    local lines
+    lines=$(_proxy_env_lines)
+    echo "$lines" > "$PROXY_ENV_FILE"
+    eval "$lines"
+    info "代理环境已自动开启"
+}
+
+_auto_proxy_off() {
+    rm -f "$PROXY_ENV_FILE"
+    eval "$(_proxy_unset_lines)"
+    info "代理环境已自动清理"
+}
+
 cmd_status() {
     title "服务状态"
     sudo systemctl status "$SERVICE_NAME" --no-pager 2>/dev/null || warn "服务未安装或未运行"
+    echo ""
+    if _is_service_enabled; then
+        echo -e "  开机自启: ${GREEN}已启用${NC}"
+    else
+        echo -e "  开机自启: ${DIM}未启用${NC}"
+    fi
 }
 
 cmd_start() {
     title "启动服务"
-    sudo systemctl start "$SERVICE_NAME" && info "服务已启动" || error "启动失败"
+    if sudo systemctl start "$SERVICE_NAME"; then
+        info "服务已启动"
+        _auto_proxy_on
+    else
+        error "启动失败"
+    fi
 }
 
 cmd_stop() {
     title "停止服务"
-    sudo systemctl stop "$SERVICE_NAME" && info "服务已停止" || error "停止失败"
+    if sudo systemctl stop "$SERVICE_NAME"; then
+        info "服务已停止"
+        _auto_proxy_off
+    else
+        error "停止失败"
+    fi
 }
 
 cmd_restart() {
     title "重启服务"
-    sudo systemctl restart "$SERVICE_NAME" && info "服务已重启" || error "重启失败"
+    if sudo systemctl restart "$SERVICE_NAME"; then
+        info "服务已重启"
+        _auto_proxy_on
+    else
+        error "重启失败"
+    fi
+}
+
+cmd_enable() {
+    title "开机自启设置"
+
+    local enabled=false
+    _is_service_enabled && enabled=true
+
+    if $enabled; then
+        echo -e "  当前状态: ${GREEN}已启用${NC}\n"
+        echo -ne "  是否${RED}关闭${NC}开机自启? [y/N]: "
+        read -r confirm
+        if [[ "$confirm" == "y" || "$confirm" == "Y" ]]; then
+            sudo systemctl disable "$SERVICE_NAME" && info "已关闭开机自启" || error "操作失败"
+        else
+            info "未做更改"
+        fi
+    else
+        echo -e "  当前状态: ${DIM}未启用${NC}\n"
+        echo -ne "  是否${GREEN}开启${NC}开机自启? [Y/n]: "
+        read -r confirm
+        if [[ "$confirm" != "n" && "$confirm" != "N" ]]; then
+            if sudo systemctl enable "$SERVICE_NAME"; then
+                info "已开启开机自启"
+                echo ""
+                if ! grep -q 'mihomo_proxy_env' "$HOME/.bashrc" 2>/dev/null; then
+                    echo -e "  ${YELLOW}建议添加以下内容到 ~/.bashrc 以便新终端自动加载代理:${NC}"
+                    echo -e "  ${WHITE}[ -f ~/.mihomo_proxy_env ] && source ~/.mihomo_proxy_env${NC}"
+                    echo ""
+                    echo -ne "  是否自动添加到 ~/.bashrc? [Y/n]: "
+                    read -r add_bashrc
+                    if [[ "$add_bashrc" != "n" && "$add_bashrc" != "N" ]]; then
+                        {
+                            echo ""
+                            echo "# mihomo: 新终端自动加载代理环境"
+                            echo '[ -f ~/.mihomo_proxy_env ] && source ~/.mihomo_proxy_env'
+                        } >> "$HOME/.bashrc"
+                        info "已添加到 ~/.bashrc"
+                    fi
+                else
+                    echo -e "  ${DIM}~/.bashrc 已包含代理自动加载配置${NC}"
+                fi
+            else
+                error "操作失败"
+            fi
+        else
+            info "未做更改"
+        fi
+    fi
 }
 
 cmd_log() {
@@ -1175,36 +1267,42 @@ show_menu() {
     fi
 
     if [[ -n "${http_proxy:-}" ]] || [[ -n "${all_proxy:-}" ]]; then
-        echo -e "    ${GREEN}◆${NC} ${DIM}代理环境: ON${NC}"
+        echo -ne "    ${GREEN}◆${NC} ${DIM}代理: ON${NC}"
     else
-        echo -e "    ${DIM}◇ 代理环境: OFF${NC}"
+        echo -ne "    ${DIM}◇ 代理: OFF${NC}"
+    fi
+
+    if _is_service_enabled 2>/dev/null; then
+        echo -e "    ${DIM}自启: ON${NC}"
+    else
+        echo -e "    ${DIM}自启: OFF${NC}"
     fi
     echo ""
 
     echo -e "  ${BOLD}[服务管理]${NC}"
     echo -e "    ${WHITE} 1${NC}  查看服务状态        ${WHITE} 2${NC}  启动服务"
     echo -e "    ${WHITE} 3${NC}  停止服务            ${WHITE} 4${NC}  重启服务"
-    echo -e "    ${WHITE} 5${NC}  查看日志"
+    echo -e "    ${WHITE} 5${NC}  查看日志            ${WHITE} 6${NC}  开机自启设置"
     echo ""
     echo -e "  ${BOLD}[代理管理]${NC}"
-    echo -e "    ${WHITE} 6${NC}  查看所有节点        ${WHITE} 7${NC}  查看代理组"
-    echo -e "    ${WHITE} 8${NC}  切换节点            ${WHITE} 9${NC}  测试节点延迟"
+    echo -e "    ${WHITE} 7${NC}  查看所有节点        ${WHITE} 8${NC}  查看代理组"
+    echo -e "    ${WHITE} 9${NC}  切换节点            ${WHITE}10${NC}  测试节点延迟"
     echo ""
     echo -e "  ${BOLD}[订阅管理]${NC}"
-    echo -e "    ${WHITE}10${NC}  查看订阅信息        ${WHITE}11${NC}  更新订阅"
-    echo -e "    ${WHITE}12${NC}  添加订阅            ${WHITE}13${NC}  删除订阅"
-    echo -e "    ${WHITE}14${NC}  修改订阅 URL"
+    echo -e "    ${WHITE}11${NC}  查看订阅信息        ${WHITE}12${NC}  更新订阅"
+    echo -e "    ${WHITE}13${NC}  添加订阅            ${WHITE}14${NC}  删除订阅"
+    echo -e "    ${WHITE}15${NC}  修改订阅 URL"
     echo ""
     echo -e "  ${BOLD}[环境代理]${NC}"
-    echo -e "    ${WHITE}15${NC}  代理环境状态        ${WHITE}16${NC}  开启环境代理"
-    echo -e "    ${WHITE}17${NC}  关闭环境代理"
+    echo -e "    ${WHITE}16${NC}  代理环境状态        ${WHITE}17${NC}  开启环境代理"
+    echo -e "    ${WHITE}18${NC}  关闭环境代理"
     echo ""
     echo -e "  ${BOLD}[配置与其他]${NC}"
-    echo -e "    ${WHITE}18${NC}  查看/切换模式       ${WHITE}19${NC}  查看当前连接"
-    echo -e "    ${WHITE}20${NC}  查看路由规则        ${WHITE}21${NC}  编辑配置文件"
-    echo -e "    ${WHITE}22${NC}  重载配置            ${WHITE}23${NC}  查看运行信息"
-    echo -e "    ${WHITE}24${NC}  连通性测试          ${WHITE}25${NC}  DNS 查询"
-    echo -e "    ${WHITE}26${NC}  查看配置文件"
+    echo -e "    ${WHITE}19${NC}  查看/切换模式       ${WHITE}20${NC}  查看当前连接"
+    echo -e "    ${WHITE}21${NC}  查看路由规则        ${WHITE}22${NC}  编辑配置文件"
+    echo -e "    ${WHITE}23${NC}  重载配置            ${WHITE}24${NC}  查看运行信息"
+    echo -e "    ${WHITE}25${NC}  连通性测试          ${WHITE}26${NC}  DNS 查询"
+    echo -e "    ${WHITE}27${NC}  查看配置文件"
     echo ""
     echo -e "    ${WHITE} 0${NC}  退出"
     echo ""
@@ -1213,7 +1311,7 @@ show_menu() {
 interactive_mode() {
     while true; do
         show_menu
-        echo -ne "  ${BOLD}请选择 [0-26]: ${NC}"
+        echo -ne "  ${BOLD}请选择 [0-27]: ${NC}"
         read -r choice
         echo ""
 
@@ -1223,27 +1321,28 @@ interactive_mode() {
             3)  cmd_stop ;;
             4)  cmd_restart ;;
             5)  cmd_log ;;
-            6)  cmd_proxies ;;
-            7)  cmd_groups ;;
-            8)  cmd_select ;;
-            9)  cmd_delay_test ;;
-            10) cmd_subs ;;
-            11) cmd_update_subs ;;
-            12) cmd_add_sub ;;
-            13) cmd_del_sub ;;
-            14) cmd_edit_sub_url ;;
-            15) cmd_proxy_status ;;
-            16) cmd_proxy_on true ;;
-            17) cmd_proxy_off true ;;
-            18) cmd_mode ;;
-            19) cmd_connections ;;
-            20) cmd_rules ;;
-            21) cmd_edit ;;
-            22) cmd_reload ;;
-            23) cmd_info ;;
-            24) cmd_test ;;
-            25) cmd_dns ;;
-            26) cmd_config_view ;;
+            6)  cmd_enable ;;
+            7)  cmd_proxies ;;
+            8)  cmd_groups ;;
+            9)  cmd_select ;;
+            10) cmd_delay_test ;;
+            11) cmd_subs ;;
+            12) cmd_update_subs ;;
+            13) cmd_add_sub ;;
+            14) cmd_del_sub ;;
+            15) cmd_edit_sub_url ;;
+            16) cmd_proxy_status ;;
+            17) cmd_proxy_on true ;;
+            18) cmd_proxy_off true ;;
+            19) cmd_mode ;;
+            20) cmd_connections ;;
+            21) cmd_rules ;;
+            22) cmd_edit ;;
+            23) cmd_reload ;;
+            24) cmd_info ;;
+            25) cmd_test ;;
+            26) cmd_dns ;;
+            27) cmd_config_view ;;
             0)  echo -e "  ${GREEN}再见!${NC}"; exit 0 ;;
             *)  warn "无效选择: $choice" ;;
         esac
@@ -1261,10 +1360,11 @@ show_help() {
 
     echo -e "${BOLD}服务管理:${NC}"
     echo "  status                查看服务状态"
-    echo "  start                 启动服务"
-    echo "  stop                  停止服务"
-    echo "  restart               重启服务"
+    echo "  start                 启动服务 (同时开启代理环境)"
+    echo "  stop                  停止服务 (同时清理代理环境)"
+    echo "  restart               重启服务 (同时刷新代理环境)"
     echo "  log                   查看服务日志 (实时)"
+    echo "  enable                开机自启设置 (交互式开启/关闭)"
     echo ""
     echo -e "${BOLD}代理管理:${NC}"
     echo "  proxies               查看所有代理节点"
@@ -1329,6 +1429,7 @@ main() {
         add-sub)        cmd_add_sub ;;
         del-sub)        cmd_del_sub ;;
         edit-sub-url)   cmd_edit_sub_url ;;
+        enable)         cmd_enable ;;
         proxy-on)       cmd_proxy_on false ;;
         proxy-off)      cmd_proxy_off false ;;
         proxy-status)   cmd_proxy_status ;;
