@@ -33,7 +33,7 @@ title()   { echo -e "\n${BOLD}${CYAN}── $* ──${NC}"; }
 divider() { printf "${DIM}"; printf '─%.0s' $(seq 1 50); printf "${NC}\n"; }
 
 urlencode() {
-    jq -sRr @uri <<< "$1" 2>/dev/null || python3 -c "import urllib.parse,sys; print(urllib.parse.quote(sys.argv[1]))" "$1" 2>/dev/null || echo "$1"
+    printf '%s' "$1" | jq -sRr @uri 2>/dev/null || python3 -c "import urllib.parse,sys; print(urllib.parse.quote(sys.argv[1]))" "$1" 2>/dev/null || echo "$1"
 }
 
 bytes_to_human() {
@@ -50,7 +50,11 @@ bytes_to_human() {
 }
 
 delay_color() {
-    local delay=${1:-0}
+    local delay="${1:-0}"
+    if ! [[ "$delay" =~ ^[0-9]+$ ]]; then
+        echo -e "${RED}错误${NC}"
+        return
+    fi
     if [[ "$delay" -le 0 ]]; then
         echo -e "${RED}超时${NC}"
     elif [[ "$delay" -lt 200 ]]; then
@@ -385,7 +389,14 @@ cmd_delay_test() {
             continue
         fi
 
-        echo "$result" | jq -r 'to_entries[] | "\(.key)|\(.value)"' 2>/dev/null | \
+        local errmsg
+        errmsg=$(echo "$result" | jq -r '.message // empty' 2>/dev/null)
+        if [[ -n "$errmsg" ]]; then
+            warn "${g}: ${errmsg}"
+            continue
+        fi
+
+        echo "$result" | jq -r 'to_entries[] | select(.value | type == "number") | "\(.key)|\(.value)"' 2>/dev/null | \
             sort -t'|' -k2 -n | while IFS='|' read -r name delay; do
             local delay_str
             delay_str=$(delay_color "$delay")
